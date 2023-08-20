@@ -10,7 +10,7 @@
 
 char MAGIC[] = {'W', 'i', 'F', 'i', 'C', 'O', 'N', 'F'};
 
-#define EEPROM_WIFI_CONFIGURED_MAGIC_OFFSET  0    // MAGC = wifi configured, anything else = wifi NOT configured
+#define EEPROM_WIFI_CONFIGURED_MAGIC_OFFSET  0    // WiFiCONF = wifi configured, anything else = wifi NOT configured
 #define EEPROM_WIFI_CONFIGURED_MAGIC_LENGTH  8
 #define EEPROM_SSID_OFFSET                   8
 #define EEPROM_SSID_LENGTH                   32   // max length for ssid, no null (according to the googles)

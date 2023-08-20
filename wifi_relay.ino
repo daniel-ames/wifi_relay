@@ -12,25 +12,26 @@
 #define outl  Serial.println()
 
 
-#define EEPROM_WIFI_CONFIGURED_BYTE      0    // 0 = wifi NOT configured, 1 = wifi configured
-#define EEPROM_SSID_OFFSET               1
-#define EEPROM_SSID_LENGTH               32   // max length for ssid, no null (according to the googles)
-#define EEPROM_PASSWORD_OFFSET           33
-#define EEPROM_PASSWORD_LENGTH           63   // max length for password, no null (according to the googles)
+char MAGIC[] = {'W', 'i', 'F', 'i', 'C', 'O', 'N', 'F'};
 
-#define EEPROM_NUMBER_OF_BYTES_WE_USE    (1 + EEPROM_SSID_LENGTH + EEPROM_PASSWORD_LENGTH)
+#define EEPROM_WIFI_CONFIGURED_MAGIC_OFFSET  0    // MAGC = wifi configured, anything else = wifi NOT configured
+#define EEPROM_WIFI_CONFIGURED_MAGIC_LENGTH  8
+#define EEPROM_SSID_OFFSET                   8
+#define EEPROM_SSID_LENGTH                   32   // max length for ssid, no null (according to the googles)
+#define EEPROM_PASSWORD_OFFSET               40
+#define EEPROM_PASSWORD_LENGTH               63   // max length for password, no null (according to the googles)
+
+#define EEPROM_NUMBER_OF_BYTES_WE_USE        (EEPROM_WIFI_CONFIGURED_MAGIC_LENGTH + EEPROM_SSID_LENGTH + EEPROM_PASSWORD_LENGTH)
 
 #define DEFAULT_SSID     "wifi_relay"
 
 
 ESP8266WebServer server(80);
 
-String get_eeprom_string(int offset, int length) {
-  String str = "";
+void get_eeprom_buffer(int offset, int length, char *buf) {
   for (int i = offset; i < offset + length; i++) {
-    str += EEPROM.read(i);
+    buf[i] = EEPROM.read(i);
   }
-  return str + '\0';
 }
 
 void handleSetup() {
@@ -55,6 +56,22 @@ void handleSetup() {
 
 }
 
+bool WifiConfigured() {
+  char sig[9];
+  sig[8] = 0;
+
+  get_eeprom_buffer(EEPROM_WIFI_CONFIGURED_MAGIC_OFFSET, EEPROM_WIFI_CONFIGURED_MAGIC_LENGTH, sig);
+
+  out("sig: %s\n", sig);
+
+  for (int i = 0; i < EEPROM_WIFI_CONFIGURED_MAGIC_LENGTH; i++) {
+    out("%d: %c", i, MAGIC[i]);
+    out("    %d: %c\n", i, sig[i]);
+    if (MAGIC[i] != sig[i]) return false;
+  }
+
+  return true;
+}
 
 void setup() {
   delay(3000);
@@ -64,23 +81,21 @@ void setup() {
 
   EEPROM.begin(EEPROM_NUMBER_OF_BYTES_WE_USE);
 
-  char wifi_configured = EEPROM.read(EEPROM_WIFI_CONFIGURED_BYTE);
   //EEPROM.write(EEPROM_WIFI_CONFIGURED_BYTE, (byte)notificationsMuted);
   //EEPROM.commit();
-  out("mystery char: %c\n", wifi_configured);
 
-
-  if (wifi_configured) {
-    String ssid = get_eeprom_string(EEPROM_SSID_OFFSET, EEPROM_SSID_LENGTH);
-    String password = get_eeprom_string(EEPROM_PASSWORD_OFFSET, EEPROM_PASSWORD_LENGTH);
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(ssid, password);
-    out("Connecting to %s", ssid);
-    while (WiFi.status() != WL_CONNECTED) {
-      delay(500);
-      out(".");
-    }
-    out("connected.\n");
+  if (WifiConfigured()) {
+    // String ssid = get_eeprom_buffer(EEPROM_SSID_OFFSET, EEPROM_SSID_LENGTH);
+    // String password = get_eeprom_buffer(EEPROM_PASSWORD_OFFSET, EEPROM_PASSWORD_LENGTH);
+    // WiFi.mode(WIFI_STA);
+    // WiFi.begin(ssid, password);
+    // out("Connecting to %s", ssid);
+    // while (WiFi.status() != WL_CONNECTED) {
+    //   delay(500);
+    //   out(".");
+    // }
+    // out("connected.\n");
+    out("configued!\n");
   } else {
     out("No ssid configured\n");
     out("Entering AP mode. SSID: %s\n", DEFAULT_SSID);

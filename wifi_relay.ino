@@ -1,7 +1,3 @@
-
-
-
-
 #include <Arduino.h>
 #include <ESP8266WebServer.h>
 #include <EEPROM.h>
@@ -65,7 +61,7 @@ void handleSetup() {
     out("SSID: %s\n", ssid);
     out("Pass: %s\n", password);
 
-    server.send(200);
+    server.send(200, "text/html", FPSTR(rebooting));
   } else {
     out("nae data!!\n");
     server.send(401);
@@ -141,7 +137,10 @@ void setup() {
     WiFi.softAP(DEFAULT_SSID);
     out("APIP: ");
     Serial.println(WiFi.softAPIP());
-    server.on("/", HTTP_GET, handleSetup);
+    server.on("/", HTTP_GET, []() {
+      server.send(200, "text/html", FPSTR(config_form));
+    });
+    server.on("/setConfig", HTTP_GET, handleSetup);
     server.begin();
   }
 
@@ -151,24 +150,6 @@ void loop() {
   server.handleClient();
 
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

@@ -25,8 +25,26 @@ char MAGIC[] = {'W', 'i', 'F', 'i', 'C', 'O', 'N', 'F'};
 
 #define DEFAULT_SSID     "wifi_relay"
 
+#define RESET_CONFIG  5    // GPIO 5, D1 on silkscreen
+
 
 ESP8266WebServer server(80);
+
+short pushButtonSemaphore = 0;
+unsigned long lastInterruptTime = 0;
+unsigned long interruptTime;
+void IRAM_ATTR PbVector() {
+  // Hit the semaphore ONLY within the bounds of the debounce timer.
+  // In other words, the only piece of code in here that's not debounce
+  // logic is "pushButtonSemaphore++"
+  // I learned the hard way that ISR's must be blazingly quick on ESP32,
+  // else the watchdog will think the loop() is in the weeds and will reboot
+  // the damn cpu.
+  interruptTime = millis();
+  if (interruptTime - lastInterruptTime > 200) pushButtonSemaphore++;
+  lastInterruptTime = interruptTime;
+}
+
 
 void get_eeprom_buffer(int offset, int length, char *buf) {
   for (int i = offset; i < offset + length; i++) {
@@ -62,15 +80,32 @@ bool WifiConfigured() {
 
   get_eeprom_buffer(EEPROM_WIFI_CONFIGURED_MAGIC_OFFSET, EEPROM_WIFI_CONFIGURED_MAGIC_LENGTH, sig);
 
-  out("sig: %s\n", sig);
-
-  for (int i = 0; i < EEPROM_WIFI_CONFIGURED_MAGIC_LENGTH; i++) {
-    out("%d: %c", i, MAGIC[i]);
-    out("    %d: %c\n", i, sig[i]);
+  for (int i = 0; i < EEPROM_WIFI_CONFIGURED_MAGIC_LENGTH; i++)
     if (MAGIC[i] != sig[i]) return false;
-  }
 
   return true;
+}
+
+bool wipe_config_interrupt_in_service = false;
+void IRAM_ATTR WipeConfig() {
+
+  // debounce - just in case this function fails to reset the cpu for some reason.
+  if (wipe_config_interrupt_in_service) return;
+  wipe_config_interrupt_in_service = true;
+
+  out("\n\nWiping EEPROM config space");
+  for (int i = 0; i < EEPROM_NUMBER_OF_BYTES_WE_USE; i++) {
+    EEPROM.write(i, 0);
+    Serial.print(".");
+  }
+  Serial.println();
+  if (EEPROM.commit()) {
+    Serial.println("EEPROM config space successfully wiped.");
+    ESP.restart();
+  } else {
+    Serial.println("ERROR! EEPROM config space wipe failed!");
+  }
+  wipe_config_interrupt_in_service = false;
 }
 
 void setup() {
@@ -79,23 +114,27 @@ void setup() {
   Serial.begin(115200);
   out("startup\n");
 
+  pinMode(RESET_CONFIG, INPUT_PULLUP);
+  attachInterrupt(RESET_CONFIG, WipeConfig, FALLING);
+
   EEPROM.begin(EEPROM_NUMBER_OF_BYTES_WE_USE);
 
   //EEPROM.write(EEPROM_WIFI_CONFIGURED_BYTE, (byte)notificationsMuted);
   //EEPROM.commit();
 
   if (WifiConfigured()) {
-    // String ssid = get_eeprom_buffer(EEPROM_SSID_OFFSET, EEPROM_SSID_LENGTH);
-    // String password = get_eeprom_buffer(EEPROM_PASSWORD_OFFSET, EEPROM_PASSWORD_LENGTH);
-    // WiFi.mode(WIFI_STA);
-    // WiFi.begin(ssid, password);
-    // out("Connecting to %s", ssid);
-    // while (WiFi.status() != WL_CONNECTED) {
-    //   delay(500);
-    //   out(".");
-    // }
-    // out("connected.\n");
-    out("configued!\n");
+    char ssid[33] = {0};
+    char password[64] = {0};
+    get_eeprom_buffer(EEPROM_SSID_OFFSET, EEPROM_SSID_LENGTH, ssid);
+    get_eeprom_buffer(EEPROM_PASSWORD_OFFSET, EEPROM_PASSWORD_LENGTH, password);
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(ssid, password);
+    out("Connecting to %s", ssid);
+    while (WiFi.status() != WL_CONNECTED) {
+      delay(500);
+      out(".");
+    }
+    out("connected.\n");
   } else {
     out("No ssid configured\n");
     out("Entering AP mode. SSID: %s\n", DEFAULT_SSID);
@@ -110,6 +149,7 @@ void setup() {
 
 void loop() {
   server.handleClient();
+
 }
 
 

@@ -1,7 +1,3 @@
-
-
-
-
 #include <Arduino.h>
 #include <ESP8266WebServer.h>
 #include <EEPROM.h>
@@ -47,9 +43,18 @@ void IRAM_ATTR PbVector() {
 
 
 void get_eeprom_buffer(int offset, int length, char *buf) {
+  int buf_offset = 0;
   for (int i = offset; i < offset + length; i++) {
-    buf[i] = EEPROM.read(i);
+    buf[buf_offset++] = EEPROM.read(i);
   }
+}
+
+bool write_eeprom_buffer(int offset, int length, char *buf) {
+  int buf_offset = 0;
+  for (int i = offset; i < offset + length; i++) {
+    EEPROM.write(i, buf[buf_offset++]);
+  }
+  return EEPROM.commit();
 }
 
 void handleSetup() {
@@ -58,19 +63,42 @@ void handleSetup() {
   String ssid = "";
   String password = "";
 
+  char ssidBuf[EEPROM_SSID_LENGTH + 1] = {0};
+  char passBuf[EEPROM_PASSWORD_LENGTH + 1] = {0};
+
   if (server.args() == 2) {
     ssid = server.arg(0);
     password = server.arg(1);
 
-    out("SSID: %s\n", ssid);
-    out("Pass: %s\n", password);
+    if (ssid.length() > EEPROM_SSID_LENGTH || password.length() > EEPROM_PASSWORD_LENGTH) {
+      // No bueno
+      server.send(200, "text/html", FPSTR(config_with_errors_form));
+      return;
+    }
 
-    server.send(200);
+    ssid.toCharArray(ssidBuf, EEPROM_SSID_LENGTH);
+    password.toCharArray(passBuf, EEPROM_PASSWORD_LENGTH);
+
+    out("SSID: %s\n", ssidBuf);
+    out("Pass: %s\n", passBuf);
+
+    // Commit settings to EEPROM
+    if (write_eeprom_buffer(EEPROM_SSID_OFFSET, EEPROM_SSID_LENGTH, ssidBuf) &&
+        write_eeprom_buffer(EEPROM_PASSWORD_OFFSET, EEPROM_PASSWORD_LENGTH, passBuf)) {
+      // Don't write the magic unless the actual wifi config data wrote successfully
+      write_eeprom_buffer(EEPROM_WIFI_CONFIGURED_MAGIC_OFFSET, EEPROM_WIFI_CONFIGURED_MAGIC_LENGTH, MAGIC);
+    } else {
+      out("\nFAILED!!\n");
+    }
+
+    server.send(200, "text/html", FPSTR(rebooting));
+    // Too fast. I observe that when configuring from my phone, I don't get the rebooting response before it reboots.
+    delay(500);
+    ESP.restart();
   } else {
-    out("nae data!!\n");
+    out("Bad data!!\n");
     server.send(401);
   }
-
 
 }
 
@@ -134,16 +162,23 @@ void setup() {
       delay(500);
       out(".");
     }
-    out("connected.\n");
+    out("connected at ");
+    Serial.println(WiFi.localIP());
+    server.on("/", HTTP_GET, []() {
+      server.send(200, "text/html", FPSTR(welcome_form));
+    });
   } else {
     out("No ssid configured\n");
     out("Entering AP mode. SSID: %s\n", DEFAULT_SSID);
     WiFi.softAP(DEFAULT_SSID);
     out("APIP: ");
     Serial.println(WiFi.softAPIP());
-    server.on("/", HTTP_GET, handleSetup);
-    server.begin();
+    server.on("/", HTTP_GET, []() {
+      server.send(200, "text/html", FPSTR(config_form));
+    });
+    server.on("/setConfig", HTTP_GET, handleSetup);
   }
+  server.begin();
 
 }
 
@@ -151,24 +186,6 @@ void loop() {
   server.handleClient();
 
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

@@ -23,8 +23,10 @@ char MAGIC[] = {'W', 'i', 'F', 'i', 'C', 'O', 'N', 'F'};
 #define DEFAULT_SSID     "wifi_relay"
 
 #define RESET_CONFIG  14    // GPIO 14, D5 on silkscreen
+#define SHOW_CONFIG   12    // GPIO 12, D6 on silkscreen
 
-#define LCD_SCROLL_INTERVAL  3000
+#define LCD_SCROLL_INTERVAL  3000     // How long a portion of a scrolling message will stay before scrolling to the next portion
+#define LCD_TIMEOUT          5000     // LCD screen will turn off after this amount of time (when not in config mode)
 
 
 ESP8266WebServer server(80);
@@ -32,7 +34,8 @@ LiquidCrystal_I2C lcd(0x27, 16, 4);
 
 bool wifiConfigured = false;
 bool lcdIsOn = false;
-int scrollTime = 0;
+unsigned long scrollTime = 0;
+unsigned long lcdTimeoutCounter = 0;
 
 typedef enum {
   ToConfigureMe,
@@ -42,7 +45,6 @@ typedef enum {
 
 ScrollPortion scrollPortion = ThenGoTo;
 
-//bool firstHalfVisible = false;
 
 short pushButtonSemaphore = 0;
 unsigned long lastInterruptTime = 0;
@@ -253,6 +255,10 @@ void setup() {
     server.on("/setConfig", HTTP_GET, handleSetup);
   }
 
+  // Set the push button for GPIO12, and attch to PbVector()
+  pinMode(SHOW_CONFIG, INPUT_PULLUP);
+  attachInterrupt(SHOW_CONFIG, PbVector, FALLING);
+
   server.begin();
 
 }
@@ -267,12 +273,15 @@ void loop() {
     } else if (millis() - scrollTime > LCD_SCROLL_INTERVAL) {
       if(scrollPortion == ThenGoTo) {
         // show the first portion
+        //    To configure me,
         lcd.clear();
         lcd.setCursor(0,0);
         lcd.print("To configure me,");
         scrollPortion = ToConfigureMe;
       } else if(scrollPortion == ToConfigureMe) {
-        // show the thrid portion
+        // show the second portion
+        //    connect to:
+        //    "wifi_relay"
         lcd.clear();
         lcd.setCursor(0,0);
         lcd.print("connect to:");
@@ -282,7 +291,9 @@ void loop() {
         lcd.print("\"");
         scrollPortion = ConnectToSsid;
       } else if(scrollPortion == ConnectToSsid) {
-        // Show the first half
+        // show the third portion
+        //    Then browse to:
+        //    192.168.4.1
         lcd.clear();
         lcd.setCursor(0,0);
         lcd.print("Then browse to:");
@@ -295,6 +306,39 @@ void loop() {
       scrollTime = millis();
     }
   }
+
+  if (wifiConfigured) {
+
+    // Turn off the lcd if it's been on for too long
+    if (lcdIsOn) {
+      if (lcdTimeoutCounter == 0) {
+        lcdTimeoutCounter = millis();
+      } else if (millis() - lcdTimeoutCounter > LCD_TIMEOUT) {
+        lcdIsOn = false;
+        lcd.noDisplay();
+        lcd.noBacklight();
+      }
+    }
+
+    if (pushButtonSemaphore) {
+      if (!lcdIsOn) {
+        lcd.display();
+        lcd.backlight();
+      }
+      lcdIsOn = true;
+      lcdTimeoutCounter = 0;
+      lcd.clear();
+      lcd.setCursor(0,0);
+      lcd.print("SSID:");
+      lcd.print(WiFi.SSID());
+      lcd.setCursor(0,1);
+      lcd.print(WiFi.localIP());
+
+      pushButtonSemaphore = 0;
+    }
+
+  }
+
 }
 
 

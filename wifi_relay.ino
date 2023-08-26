@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <ESP8266WebServer.h>
 #include <EEPROM.h>
+#include <LiquidCrystal_I2C.h>
 #include "html_strings.h"
 
 
@@ -21,10 +22,29 @@ char MAGIC[] = {'W', 'i', 'F', 'i', 'C', 'O', 'N', 'F'};
 
 #define DEFAULT_SSID     "wifi_relay"
 
-#define RESET_CONFIG  5    // GPIO 5, D1 on silkscreen
+#define RESET_CONFIG  14    // GPIO 14, D5 on silkscreen
+#define SHOW_CONFIG   12    // GPIO 12, D6 on silkscreen
+
+#define LCD_SCROLL_INTERVAL  3000     // How long a portion of a scrolling message will stay before scrolling to the next portion
+#define LCD_TIMEOUT          5000     // LCD screen will turn off after this amount of time (when not in config mode)
 
 
 ESP8266WebServer server(80);
+LiquidCrystal_I2C lcd(0x27, 16, 4);
+
+bool wifiConfigured = false;
+bool lcdIsOn = false;
+unsigned long scrollTime = 0;
+unsigned long lcdTimeoutCounter = 0;
+
+typedef enum {
+  ToConfigureMe,
+  ConnectToSsid,
+  ThenGoTo
+} ScrollPortion;
+
+ScrollPortion scrollPortion = ThenGoTo;
+
 
 short pushButtonSemaphore = 0;
 unsigned long lastInterruptTime = 0;
@@ -136,54 +156,188 @@ void IRAM_ATTR WipeConfig() {
   wipe_config_interrupt_in_service = false;
 }
 
+
+void connectToWifi()
+{
+  int dotLocation = 13;
+  int dots = 0;
+  int wifiRetries = 0;
+  if (!lcdIsOn) {
+    lcd.display();
+    lcd.backlight();
+    lcdIsOn = true;
+  }
+  lcd.clear();
+  out("WiFi is down. Connecting");
+
+  wifiConfigured = WifiConfigured();
+  if (wifiConfigured) {
+    char ssid[33] = {0};
+    char password[64] = {0};
+    get_eeprom_buffer(EEPROM_SSID_OFFSET, EEPROM_SSID_LENGTH, ssid);
+    get_eeprom_buffer(EEPROM_PASSWORD_OFFSET, EEPROM_PASSWORD_LENGTH, password);
+    lcd.setCursor(0,0);
+    lcd.print("Connecting to");
+    lcd.setCursor(0,1);
+    lcd.print(ssid);
+    out("Connecting to %s", ssid);
+
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(ssid, password);
+    
+    while (WiFi.status() != WL_CONNECTED) {
+      delay(500);
+      out(".");
+      if (dots == 0) {
+        lcd.setCursor(dotLocation,0);
+        lcd.print(".  ");
+        dots++;
+      } else if (dots == 1) {
+        lcd.setCursor(dotLocation,0);
+        lcd.print(".. ");
+        dots++;
+      } else if (dots == 2) {
+        lcd.setCursor(dotLocation,0);
+        lcd.print("...");
+        dots = 0;
+      }
+    }
+
+    // connected
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print("SSID:");
+    lcd.print(ssid);
+    lcd.setCursor(0,1);
+    lcd.print(WiFi.localIP());
+    out("connected at ");
+    Serial.println(WiFi.localIP());
+
+  } else {
+    out("\nNo ssid configured\n");
+    out("Entering AP mode. SSID: %s\n", DEFAULT_SSID);
+    WiFi.softAP(DEFAULT_SSID);
+    out("APIP: ");
+    Serial.println(WiFi.softAPIP());
+  }
+
+}
+
+
+
 void setup() {
   delay(3000);
 
   Serial.begin(115200);
   out("startup\n");
 
+  lcd.init();
+
   pinMode(RESET_CONFIG, INPUT_PULLUP);
   attachInterrupt(RESET_CONFIG, WipeConfig, FALLING);
 
   EEPROM.begin(EEPROM_NUMBER_OF_BYTES_WE_USE);
 
-  //EEPROM.write(EEPROM_WIFI_CONFIGURED_BYTE, (byte)notificationsMuted);
-  //EEPROM.commit();
+  // This does not retun until it successfully connects to something
+  connectToWifi();
 
-  if (WifiConfigured()) {
-    char ssid[33] = {0};
-    char password[64] = {0};
-    get_eeprom_buffer(EEPROM_SSID_OFFSET, EEPROM_SSID_LENGTH, ssid);
-    get_eeprom_buffer(EEPROM_PASSWORD_OFFSET, EEPROM_PASSWORD_LENGTH, password);
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(ssid, password);
-    out("Connecting to %s", ssid);
-    while (WiFi.status() != WL_CONNECTED) {
-      delay(500);
-      out(".");
-    }
-    out("connected at ");
-    Serial.println(WiFi.localIP());
+  if (wifiConfigured) {
+    // Wifi configured by user to connect to their router.
+    // Setup handlers for prescribed device use.
     server.on("/", HTTP_GET, []() {
       server.send(200, "text/html", FPSTR(welcome_form));
     });
   } else {
-    out("No ssid configured\n");
-    out("Entering AP mode. SSID: %s\n", DEFAULT_SSID);
-    WiFi.softAP(DEFAULT_SSID);
-    out("APIP: ");
-    Serial.println(WiFi.softAPIP());
+    // Wifi not configured by user. Setup handlers for wifi configuration.
     server.on("/", HTTP_GET, []() {
       server.send(200, "text/html", FPSTR(config_form));
     });
     server.on("/setConfig", HTTP_GET, handleSetup);
   }
+
+  // Set the push button for GPIO12, and attch to PbVector()
+  pinMode(SHOW_CONFIG, INPUT_PULLUP);
+  attachInterrupt(SHOW_CONFIG, PbVector, FALLING);
+
   server.begin();
 
 }
 
+
 void loop() {
   server.handleClient();
+  
+  if (!wifiConfigured) {
+    if (scrollTime == 0) {
+      scrollTime = millis();
+    } else if (millis() - scrollTime > LCD_SCROLL_INTERVAL) {
+      if(scrollPortion == ThenGoTo) {
+        // show the first portion
+        //    To configure me,
+        lcd.clear();
+        lcd.setCursor(0,0);
+        lcd.print("To configure me,");
+        scrollPortion = ToConfigureMe;
+      } else if(scrollPortion == ToConfigureMe) {
+        // show the second portion
+        //    connect to:
+        //    "wifi_relay"
+        lcd.clear();
+        lcd.setCursor(0,0);
+        lcd.print("connect to:");
+        lcd.setCursor(0,1);
+        lcd.print("\"");
+        lcd.print(DEFAULT_SSID);
+        lcd.print("\"");
+        scrollPortion = ConnectToSsid;
+      } else if(scrollPortion == ConnectToSsid) {
+        // show the third portion
+        //    Then browse to:
+        //    192.168.4.1
+        lcd.clear();
+        lcd.setCursor(0,0);
+        lcd.print("Then browse to:");
+        lcd.setCursor(0,1);
+        lcd.print(WiFi.softAPIP());
+        scrollPortion = ThenGoTo;
+      }
+
+      // reset the timer
+      scrollTime = millis();
+    }
+  }
+
+  if (wifiConfigured) {
+
+    // Turn off the lcd if it's been on for too long
+    if (lcdIsOn) {
+      if (lcdTimeoutCounter == 0) {
+        lcdTimeoutCounter = millis();
+      } else if (millis() - lcdTimeoutCounter > LCD_TIMEOUT) {
+        lcdIsOn = false;
+        lcd.noDisplay();
+        lcd.noBacklight();
+      }
+    }
+
+    if (pushButtonSemaphore) {
+      if (!lcdIsOn) {
+        lcd.display();
+        lcd.backlight();
+      }
+      lcdIsOn = true;
+      lcdTimeoutCounter = 0;
+      lcd.clear();
+      lcd.setCursor(0,0);
+      lcd.print("SSID:");
+      lcd.print(WiFi.SSID());
+      lcd.setCursor(0,1);
+      lcd.print(WiFi.localIP());
+
+      pushButtonSemaphore = 0;
+    }
+
+  }
 
 }
 

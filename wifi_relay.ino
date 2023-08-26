@@ -24,8 +24,25 @@ char MAGIC[] = {'W', 'i', 'F', 'i', 'C', 'O', 'N', 'F'};
 
 #define RESET_CONFIG  14    // GPIO 14, D5 on silkscreen
 
+#define LCD_SCROLL_INTERVAL  3000
+
 
 ESP8266WebServer server(80);
+LiquidCrystal_I2C lcd(0x27, 16, 4);
+
+bool wifiConfigured = false;
+bool lcdIsOn = false;
+int scrollTime = 0;
+
+typedef enum {
+  ToConfigureMe,
+  ConnectToSsid,
+  ThenGoTo
+} ScrollPortion;
+
+ScrollPortion scrollPortion = ThenGoTo;
+
+//bool firstHalfVisible = false;
 
 short pushButtonSemaphore = 0;
 unsigned long lastInterruptTime = 0;
@@ -137,59 +154,147 @@ void IRAM_ATTR WipeConfig() {
   wipe_config_interrupt_in_service = false;
 }
 
-//LiquidCrystal_I2C lcd(0x27, 16, 4);
+
+void connectToWifi()
+{
+  int dotLocation = 13;
+  int dots = 0;
+  int wifiRetries = 0;
+  if (!lcdIsOn) {
+    lcd.display();
+    lcd.backlight();
+    lcdIsOn = true;
+  }
+  lcd.clear();
+  out("WiFi is down. Connecting");
+
+  wifiConfigured = WifiConfigured();
+  if (wifiConfigured) {
+    char ssid[33] = {0};
+    char password[64] = {0};
+    get_eeprom_buffer(EEPROM_SSID_OFFSET, EEPROM_SSID_LENGTH, ssid);
+    get_eeprom_buffer(EEPROM_PASSWORD_OFFSET, EEPROM_PASSWORD_LENGTH, password);
+    lcd.setCursor(0,0);
+    lcd.print("Connecting to");
+    lcd.setCursor(0,1);
+    lcd.print(ssid);
+    out("Connecting to %s", ssid);
+
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(ssid, password);
+    
+    while (WiFi.status() != WL_CONNECTED) {
+      delay(500);
+      out(".");
+      if (dots == 0) {
+        lcd.setCursor(dotLocation,0);
+        lcd.print(".  ");
+        dots++;
+      } else if (dots == 1) {
+        lcd.setCursor(dotLocation,0);
+        lcd.print(".. ");
+        dots++;
+      } else if (dots == 2) {
+        lcd.setCursor(dotLocation,0);
+        lcd.print("...");
+        dots = 0;
+      }
+    }
+
+    // connected
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print("SSID:");
+    lcd.print(ssid);
+    lcd.setCursor(0,1);
+    lcd.print(WiFi.localIP());
+    out("connected at ");
+    Serial.println(WiFi.localIP());
+
+  } else {
+    out("\nNo ssid configured\n");
+    out("Entering AP mode. SSID: %s\n", DEFAULT_SSID);
+    WiFi.softAP(DEFAULT_SSID);
+    out("APIP: ");
+    Serial.println(WiFi.softAPIP());
+  }
+
+}
+
+
+
 void setup() {
   delay(3000);
 
   Serial.begin(115200);
   out("startup\n");
 
-  //lcd.init();
-  
+  lcd.init();
 
   pinMode(RESET_CONFIG, INPUT_PULLUP);
   attachInterrupt(RESET_CONFIG, WipeConfig, FALLING);
 
   EEPROM.begin(EEPROM_NUMBER_OF_BYTES_WE_USE);
 
-  //EEPROM.write(EEPROM_WIFI_CONFIGURED_BYTE, (byte)notificationsMuted);
-  //EEPROM.commit();
+  // This does not retun until it successfully connects to something
+  connectToWifi();
 
-  if (WifiConfigured()) {
-    char ssid[33] = {0};
-    char password[64] = {0};
-    get_eeprom_buffer(EEPROM_SSID_OFFSET, EEPROM_SSID_LENGTH, ssid);
-    get_eeprom_buffer(EEPROM_PASSWORD_OFFSET, EEPROM_PASSWORD_LENGTH, password);
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(ssid, password);
-    out("Connecting to %s", ssid);
-    while (WiFi.status() != WL_CONNECTED) {
-      delay(500);
-      out(".");
-    }
-    out("connected at ");
-    Serial.println(WiFi.localIP());
+  if (wifiConfigured) {
+    // Wifi configured by user to connect to their router.
+    // Setup handlers for prescribed device use.
     server.on("/", HTTP_GET, []() {
       server.send(200, "text/html", FPSTR(welcome_form));
     });
   } else {
-    out("No ssid configured\n");
-    out("Entering AP mode. SSID: %s\n", DEFAULT_SSID);
-    WiFi.softAP(DEFAULT_SSID);
-    out("APIP: ");
-    Serial.println(WiFi.softAPIP());
+    // Wifi not configured by user. Setup handlers for wifi configuration.
     server.on("/", HTTP_GET, []() {
       server.send(200, "text/html", FPSTR(config_form));
     });
     server.on("/setConfig", HTTP_GET, handleSetup);
   }
+
   server.begin();
 
 }
 
+
 void loop() {
   server.handleClient();
+  
+  if (!wifiConfigured) {
+    if (scrollTime == 0) {
+      scrollTime = millis();
+    } else if (millis() - scrollTime > LCD_SCROLL_INTERVAL) {
+      if(scrollPortion == ThenGoTo) {
+        // show the first portion
+        lcd.clear();
+        lcd.setCursor(0,0);
+        lcd.print("To configure me,");
+        scrollPortion = ToConfigureMe;
+      } else if(scrollPortion == ToConfigureMe) {
+        // show the thrid portion
+        lcd.clear();
+        lcd.setCursor(0,0);
+        lcd.print("connect to:");
+        lcd.setCursor(0,1);
+        lcd.print("\"");
+        lcd.print(DEFAULT_SSID);
+        lcd.print("\"");
+        scrollPortion = ConnectToSsid;
+      } else if(scrollPortion == ConnectToSsid) {
+        // Show the first half
+        lcd.clear();
+        lcd.setCursor(0,0);
+        lcd.print("Then browse to:");
+        lcd.setCursor(0,1);
+        lcd.print(WiFi.softAPIP());
+        scrollPortion = ThenGoTo;
+      }
 
+      // reset the timer
+      scrollTime = millis();
+    }
+  }
 }
 
 

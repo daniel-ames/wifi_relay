@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <ESP8266WebServer.h>
 #include <EEPROM.h>
+#include <LiquidCrystal_I2C.h>
 #include "html_strings.h"
 
 
@@ -21,7 +22,7 @@ char MAGIC[] = {'W', 'i', 'F', 'i', 'C', 'O', 'N', 'F'};
 
 #define DEFAULT_SSID     "wifi_relay"
 
-#define RESET_CONFIG  5    // GPIO 5, D1 on silkscreen
+#define RESET_CONFIG  14    // GPIO 14, D5 on silkscreen
 
 
 ESP8266WebServer server(80);
@@ -136,11 +137,15 @@ void IRAM_ATTR WipeConfig() {
   wipe_config_interrupt_in_service = false;
 }
 
+//LiquidCrystal_I2C lcd(0x27, 16, 4);
 void setup() {
   delay(3000);
 
   Serial.begin(115200);
   out("startup\n");
+
+  //lcd.init();
+  
 
   pinMode(RESET_CONFIG, INPUT_PULLUP);
   attachInterrupt(RESET_CONFIG, WipeConfig, FALLING);

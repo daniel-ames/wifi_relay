@@ -283,7 +283,7 @@ void loop() {
         lcd.setCursor(0,0);
         lcd.print("To configure me,");
         scrollPortion = ToConfigureMe;
-        digitalWrite(RELAY_OUT, HIGH);
+        digitalWrite(RELAY_OUT, int(!digitalRead(RELAY_OUT)));
       } else if(scrollPortion == ToConfigureMe) {
         // show the second portion
         //    connect to:
@@ -296,7 +296,7 @@ void loop() {
         lcd.print(DEFAULT_SSID);
         lcd.print("\"");
         scrollPortion = ConnectToSsid;
-        digitalWrite(RELAY_OUT, LOW);
+        digitalWrite(RELAY_OUT, int(!digitalRead(RELAY_OUT)));
       } else if(scrollPortion == ConnectToSsid) {
         // show the third portion
         //    Then browse to:
@@ -307,6 +307,7 @@ void loop() {
         lcd.setCursor(0,1);
         lcd.print(WiFi.softAPIP());
         scrollPortion = ThenGoTo;
+        digitalWrite(RELAY_OUT, int(!digitalRead(RELAY_OUT)));
       }
 
       // reset the timer

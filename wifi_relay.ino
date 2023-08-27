@@ -22,8 +22,9 @@ char MAGIC[] = {'W', 'i', 'F', 'i', 'C', 'O', 'N', 'F'};
 
 #define DEFAULT_SSID     "wifi_relay"
 
-#define RESET_CONFIG  14    // GPIO 14, D5 on silkscreen
 #define SHOW_CONFIG   12    // GPIO 12, D6 on silkscreen
+#define RELAY_OUT     13    // GPIO 13, D7 on silkscreen
+#define RESET_CONFIG  14    // GPIO 14, D5 on silkscreen
 
 #define LCD_SCROLL_INTERVAL  3000     // How long a portion of a scrolling message will stay before scrolling to the next portion
 #define LCD_TIMEOUT          5000     // LCD screen will turn off after this amount of time (when not in config mode)
@@ -236,6 +237,10 @@ void setup() {
   pinMode(RESET_CONFIG, INPUT_PULLUP);
   attachInterrupt(RESET_CONFIG, WipeConfig, FALLING);
 
+  // don't leave this here. Move it to after wifi init.
+  // I don't want the safety off the trigger until after wifi is configured. Here now just for testing.
+  pinMode(RELAY_OUT, OUTPUT);
+
   EEPROM.begin(EEPROM_NUMBER_OF_BYTES_WE_USE);
 
   // This does not retun until it successfully connects to something
@@ -278,6 +283,7 @@ void loop() {
         lcd.setCursor(0,0);
         lcd.print("To configure me,");
         scrollPortion = ToConfigureMe;
+        digitalWrite(RELAY_OUT, int(!digitalRead(RELAY_OUT)));
       } else if(scrollPortion == ToConfigureMe) {
         // show the second portion
         //    connect to:
@@ -290,6 +296,7 @@ void loop() {
         lcd.print(DEFAULT_SSID);
         lcd.print("\"");
         scrollPortion = ConnectToSsid;
+        digitalWrite(RELAY_OUT, int(!digitalRead(RELAY_OUT)));
       } else if(scrollPortion == ConnectToSsid) {
         // show the third portion
         //    Then browse to:
@@ -300,6 +307,7 @@ void loop() {
         lcd.setCursor(0,1);
         lcd.print(WiFi.softAPIP());
         scrollPortion = ThenGoTo;
+        digitalWrite(RELAY_OUT, int(!digitalRead(RELAY_OUT)));
       }
 
       // reset the timer

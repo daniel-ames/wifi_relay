@@ -18,6 +18,8 @@ char MAGIC[] = {'W', 'i', 'F', 'i', 'C', 'O', 'N', 'F'};
 #define EEPROM_PASSWORD_OFFSET               40
 #define EEPROM_PASSWORD_LENGTH               63   // max length for password, no null (according to the googles)
 
+#define DURATION_MAX_LENGTH                  4    // enough for up to 9999
+
 #define EEPROM_NUMBER_OF_BYTES_WE_USE        (EEPROM_WIFI_CONFIGURED_MAGIC_LENGTH + EEPROM_SSID_LENGTH + EEPROM_PASSWORD_LENGTH)
 
 #define DEFAULT_SSID     "wifi_relay"
@@ -37,6 +39,7 @@ bool wifiConfigured = false;
 bool lcdIsOn = false;
 unsigned long scrollTime = 0;
 unsigned long lcdTimeoutCounter = 0;
+bool errorInControlForm = false;
 
 typedef enum {
   ToConfigureMe,
@@ -112,7 +115,7 @@ void handleSetup() {
       out("\nFAILED!!\n");
     }
 
-    server.send(200, "text/html", FPSTR(rebooting));
+    server.send(200, "text/html", FPSTR(rebooting_html));
     // Too fast. I observe that when configuring from my phone, I don't get the rebooting response before it reboots.
     delay(500);
     ESP.restart();
@@ -122,6 +125,58 @@ void handleSetup() {
   }
 
 }
+
+
+void sendControlForm() {
+  // Build the html form to send
+  String output_html = errorInControlForm ? control_with_errors_form_hdr : control_form_hdr;
+  errorInControlForm = false;
+  char *action_html = (char*)malloc(66);  // todo: lose this magic number!
+  char  ip_address[16] = {0};
+  WiFi.localIP().toString().toCharArray(ip_address, 16);
+
+  sprintf(action_html, "<form action=\"http://%s/activateRelay\" method=\"GET\">", ip_address);
+  output_html += action_html;
+  output_html += control_form;
+
+  server.send(200, "text/html", output_html);
+  free(action_html);
+}
+
+void handleRelay() {
+  out("Received relay activation request\n");
+
+  String duration = "";
+
+  char durationBuf[DURATION_MAX_LENGTH + 1] = {0};
+
+  if (server.args() == 1) {
+    duration = server.arg(0);
+
+    if (duration.length() > DURATION_MAX_LENGTH) {
+      // No bueno
+      errorInControlForm = true;
+      sendControlForm();
+      return;
+    }
+    server.send(200);
+
+    duration.toCharArray(durationBuf, DURATION_MAX_LENGTH);
+
+    out("Duration: %s\n", durationBuf);
+
+    //server.send(200, "text/html", FPSTR(rebooting_html));
+    // Too fast. I observe that when configuring from my phone, I don't get the rebooting response before it reboots.
+    //delay(500);
+    //ESP.restart();
+  } else {
+    out("Bad data!!\n");
+    server.send(401);
+  }
+
+}
+
+
 
 bool WifiConfigured() {
   char sig[9];
@@ -240,6 +295,7 @@ void setup() {
   // don't leave this here. Move it to after wifi init.
   // I don't want the safety off the trigger until after wifi is configured. Here now just for testing.
   pinMode(RELAY_OUT, OUTPUT);
+  digitalWrite(RELAY_OUT, LOW);
 
   EEPROM.begin(EEPROM_NUMBER_OF_BYTES_WE_USE);
 
@@ -249,9 +305,8 @@ void setup() {
   if (wifiConfigured) {
     // Wifi configured by user to connect to their router.
     // Setup handlers for prescribed device use.
-    server.on("/", HTTP_GET, []() {
-      server.send(200, "text/html", FPSTR(welcome_form));
-    });
+    server.on("/", HTTP_GET, sendControlForm);
+    server.on("/activateRelay", HTTP_GET, handleRelay);
   } else {
     // Wifi not configured by user. Setup handlers for wifi configuration.
     server.on("/", HTTP_GET, []() {
@@ -283,7 +338,6 @@ void loop() {
         lcd.setCursor(0,0);
         lcd.print("To configure me,");
         scrollPortion = ToConfigureMe;
-        digitalWrite(RELAY_OUT, int(!digitalRead(RELAY_OUT)));
       } else if(scrollPortion == ToConfigureMe) {
         // show the second portion
         //    connect to:
@@ -296,7 +350,6 @@ void loop() {
         lcd.print(DEFAULT_SSID);
         lcd.print("\"");
         scrollPortion = ConnectToSsid;
-        digitalWrite(RELAY_OUT, int(!digitalRead(RELAY_OUT)));
       } else if(scrollPortion == ConnectToSsid) {
         // show the third portion
         //    Then browse to:
@@ -307,7 +360,6 @@ void loop() {
         lcd.setCursor(0,1);
         lcd.print(WiFi.softAPIP());
         scrollPortion = ThenGoTo;
-        digitalWrite(RELAY_OUT, int(!digitalRead(RELAY_OUT)));
       }
 
       // reset the timer

@@ -40,6 +40,7 @@ bool lcdIsOn = false;
 unsigned long scrollTime = 0;
 unsigned long lcdTimeoutCounter = 0;
 bool errorInControlForm = false;
+bool ignoreRelayRequest = true;
 
 typedef enum {
   ToConfigureMe,
@@ -140,11 +141,36 @@ void sendControlForm() {
   output_html += control_form;
 
   server.send(200, "text/html", output_html);
+  
+  // Allow handleRelay to accept relay activation requests
+  ignoreRelayRequest = false;
+
   free(action_html);
 }
 
 void handleRelay() {
   out("Received relay activation request\n");
+  
+  // <!DOCTYPE html><html><head><meta http-equiv="refresh" content="7; url='https://999.999.999.999'" /></head><body></body></html>
+  char  redirect_html[128] = {0}; //todo: lose the magic number
+  char  ip_address[16] = {0};
+  WiFi.localIP().toString().toCharArray(ip_address, 16);
+
+  sprintf(redirect_html, "<!DOCTYPE html><html><head><meta http-equiv=\"refresh\" content=\"0; url='http://%s'\" /></head><body></body></html>", ip_address);
+
+  if (ignoreRelayRequest) {
+    out("...rejected until control form get's loaded again.\n");
+    // Redirect to control form
+    server.send(200, "text/html", redirect_html);
+    return;
+  }
+
+  // Do not accept any more requests until the user reloads the control form.
+  // This is to prevent an unintentional refresh of http://<ipaddr>/activateRelay from firing the relay.
+  // Sometimes the user will refresh with an errant swipe down on their phone screen, or a browser will
+  // refresh for god knows why, or just reloading a browser app will reload the page.
+  // We need to be careful to ONLY activate the relay when the user clicks the form button.
+  ignoreRelayRequest = true;
 
   String duration = "";
 
@@ -154,12 +180,11 @@ void handleRelay() {
     duration = server.arg(0);
 
     if (duration.length() > DURATION_MAX_LENGTH) {
-      // No bueno
+      // No bueno. Signal bad input error and redirect to control form
       errorInControlForm = true;
-      sendControlForm();
+      server.send(200, "text/html", redirect_html);
       return;
     }
-    server.send(200);
 
     duration.toCharArray(durationBuf, DURATION_MAX_LENGTH);
 
@@ -173,6 +198,9 @@ void handleRelay() {
     out("Bad data!!\n");
     server.send(401);
   }
+
+  // Don't leave the user at this page
+  server.send(200, "text/html", redirect_html);
 
 }
 
@@ -224,7 +252,6 @@ void connectToWifi()
     lcdIsOn = true;
   }
   lcd.clear();
-  out("WiFi is down. Connecting");
 
   wifiConfigured = WifiConfigured();
   if (wifiConfigured) {

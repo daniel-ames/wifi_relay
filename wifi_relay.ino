@@ -39,6 +39,9 @@ bool wifiConfigured = false;
 bool lcdIsOn = false;
 unsigned long scrollTime = 0;
 unsigned long lcdTimeoutCounter = 0;
+bool relayOn = false;
+unsigned long relayTimeoutCounter = 0;
+unsigned long relayTimeout = 0;
 bool errorInControlForm = false;
 bool ignoreRelayRequest = true;
 String duration = "1";
@@ -172,8 +175,6 @@ void handleRelay() {
   // We need to be careful to ONLY activate the relay when the user clicks the form button.
   ignoreRelayRequest = true;
 
-  char durationBuf[DURATION_MAX_LENGTH + 1] = {0};
-
   if (server.args() == 1) {
     duration = server.arg(0);
 
@@ -185,14 +186,11 @@ void handleRelay() {
       return;
     }
 
-    duration.toCharArray(durationBuf, DURATION_MAX_LENGTH);
+    // Signal to turn on the relay. The main loop() will do this.
+    relayOn = true;
+    relayTimeout = (unsigned long)duration.toInt() * 1000;
 
-    out("Duration: %s\n", durationBuf);
-
-    //server.send(200, "text/html", FPSTR(rebooting_html));
-    // Too fast. I observe that when configuring from my phone, I don't get the rebooting response before it reboots.
-    //delay(500);
-    //ESP.restart();
+    out("Relay activation request for %d seconds\n", relayTimeout / 1000);
   } else {
     out("Bad data!!\n");
     server.send(401);
@@ -421,6 +419,25 @@ void loop() {
       lcd.print(WiFi.localIP());
 
       pushButtonSemaphore = 0;
+    }
+
+    if (relayOn) {
+      if (relayTimeoutCounter == 0) {
+        // User requested relay on, but we haven't turned it on yet. So turn it on.
+        out("Relay ON\n");
+        relayTimeoutCounter = millis();
+        digitalWrite(RELAY_OUT, HIGH);
+      } else if (millis() - relayTimeoutCounter > relayTimeout) {
+        // Relay time has elapsed. Turn it off.
+        digitalWrite(RELAY_OUT, LOW);
+        relayOn = false;
+        relayTimeoutCounter = 0;
+        out("Relay OFF\n");
+      } else {
+        // This simply means that the relay is currently ON, and the time for
+        // it to stay on has not elapsed yet.
+        // Nothing to do.
+      }
     }
 
   }

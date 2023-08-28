@@ -18,6 +18,8 @@ char MAGIC[] = {'W', 'i', 'F', 'i', 'C', 'O', 'N', 'F'};
 #define EEPROM_PASSWORD_OFFSET               40
 #define EEPROM_PASSWORD_LENGTH               63   // max length for password, no null (according to the googles)
 
+#define DURATION_MAX_LENGTH                  4    // enough for up to 9999
+
 #define EEPROM_NUMBER_OF_BYTES_WE_USE        (EEPROM_WIFI_CONFIGURED_MAGIC_LENGTH + EEPROM_SSID_LENGTH + EEPROM_PASSWORD_LENGTH)
 
 #define DEFAULT_SSID     "wifi_relay"
@@ -37,6 +39,20 @@ bool wifiConfigured = false;
 bool lcdIsOn = false;
 unsigned long scrollTime = 0;
 unsigned long lcdTimeoutCounter = 0;
+bool relayOn = false;
+unsigned long relayTimeoutCounter = 0;
+unsigned long relayTimeout = 0;
+bool ignoreRelayRequest = true;
+String duration = "1";
+
+
+typedef enum {
+  HeaderMessage_None,
+  HeaderMessage_BadInput,
+  HeaderMessage_CurrentlyRunning
+} HeaderMessage;
+
+HeaderMessage controlFormHdrMessage = HeaderMessage_None;
 
 typedef enum {
   ToConfigureMe,
@@ -78,6 +94,15 @@ bool write_eeprom_buffer(int offset, int length, char *buf) {
   return EEPROM.commit();
 }
 
+String getRedirectHtml() {
+  char  redirect_html[128] = {0}; //todo: lose the magic numbers
+  char  ip_address[16] = {0};
+  WiFi.localIP().toString().toCharArray(ip_address, 16);
+  sprintf(redirect_html, "<!DOCTYPE html><html><head><meta http-equiv=\"refresh\" content=\"0; url='http://%s'\" /></head><body></body></html>", ip_address);
+  String str = redirect_html;
+  return str;
+}
+
 void handleSetup() {
   out("Received wifi config data\n");
 
@@ -112,7 +137,7 @@ void handleSetup() {
       out("\nFAILED!!\n");
     }
 
-    server.send(200, "text/html", FPSTR(rebooting));
+    server.send(200, "text/html", FPSTR(rebooting_html));
     // Too fast. I observe that when configuring from my phone, I don't get the rebooting response before it reboots.
     delay(500);
     ESP.restart();
@@ -122,6 +147,97 @@ void handleSetup() {
   }
 
 }
+
+
+void sendControlForm() {
+  // Build the html form to send
+  String output_html = "";
+  switch (controlFormHdrMessage) {
+    case HeaderMessage_None:
+      output_html = control_form_hdr;
+      break;
+    case HeaderMessage_BadInput:
+      output_html = control_with_errors_form_hdr;
+      break;
+    case HeaderMessage_CurrentlyRunning:
+      output_html = control_currently_running_form_hdr;
+      break;
+  }
+
+  controlFormHdrMessage = HeaderMessage_None;
+  char  action_html[512] = {0};  // todo: lose this magic number!
+  char  ip_address[16] = {0};
+  char  duration_str[DURATION_MAX_LENGTH + 1] = {0};
+  WiFi.localIP().toString().toCharArray(ip_address, 16);
+  duration.toCharArray(duration_str, DURATION_MAX_LENGTH + 1);
+
+  sprintf(action_html, "<form action=\"http://%s/activateRelay\" method=\"GET\"><div><label for=\"duration\">How Long (seconds):</label><input name=\"duration\" id=\"duration\" value=\"%s\"/><button>GO</button></div></form><form action=\"http://%s/cancelRelay\" method=\"GET\"><button>STOP</button></form>", ip_address, duration_str, ip_address);
+  output_html += action_html;
+
+  server.send(200, "text/html", output_html);
+  
+  // Allow handleRelay to accept relay activation requests
+  ignoreRelayRequest = false;
+}
+
+void handleRelay() {
+  out("Received relay activation request\n");
+
+  if (ignoreRelayRequest) {
+    out("...rejected until control form get's loaded again.\n");
+    // Redirect to control form
+    server.send(200, "text/html", getRedirectHtml());
+    return;
+  }
+  if (relayOn) {
+    // Relay is currently on. Wait til it's done
+    controlFormHdrMessage = HeaderMessage_CurrentlyRunning;
+    server.send(200, "text/html", getRedirectHtml());
+    return;
+  }
+
+  // Do not accept any more requests until the user reloads the control form.
+  // This is to prevent an unintentional refresh of http://<ipaddr>/activateRelay from firing the relay.
+  // Sometimes the user will refresh with an errant swipe down on their phone screen, or a browser will
+  // refresh for god knows why, or just reloading a browser app will reload the page.
+  // We need to be careful to ONLY activate the relay when the user clicks the form button.
+  ignoreRelayRequest = true;
+
+  if (server.args() == 1) {
+    duration = server.arg(0);
+    relayTimeout = (unsigned long)duration.toInt() * 1000;
+
+    if (duration.length() > DURATION_MAX_LENGTH || relayTimeout == 0) {
+      // No bueno. Signal bad input error and redirect to control form
+      controlFormHdrMessage = HeaderMessage_BadInput;
+      duration = "1";
+      server.send(200, "text/html", getRedirectHtml());
+      return;
+    }
+
+    // Signal to turn on the relay. The main loop() will do this.
+    relayOn = true;
+
+    out("Relay activation request for %d seconds\n", relayTimeout / 1000);
+  } else {
+    out("Bad data!!\n");
+    server.send(401);
+  }
+
+  // Don't leave the user at this page
+  server.send(200, "text/html", getRedirectHtml());
+
+}
+
+
+void handleCancel() {
+  out("Received relay cancel request\n");
+  if (relayOn) {
+    relayTimeout = 0;
+  }
+  server.send(200, "text/html", getRedirectHtml());
+}
+
 
 bool WifiConfigured() {
   char sig[9];
@@ -169,7 +285,6 @@ void connectToWifi()
     lcdIsOn = true;
   }
   lcd.clear();
-  out("WiFi is down. Connecting");
 
   wifiConfigured = WifiConfigured();
   if (wifiConfigured) {
@@ -240,6 +355,7 @@ void setup() {
   // don't leave this here. Move it to after wifi init.
   // I don't want the safety off the trigger until after wifi is configured. Here now just for testing.
   pinMode(RELAY_OUT, OUTPUT);
+  digitalWrite(RELAY_OUT, LOW);
 
   EEPROM.begin(EEPROM_NUMBER_OF_BYTES_WE_USE);
 
@@ -249,9 +365,9 @@ void setup() {
   if (wifiConfigured) {
     // Wifi configured by user to connect to their router.
     // Setup handlers for prescribed device use.
-    server.on("/", HTTP_GET, []() {
-      server.send(200, "text/html", FPSTR(welcome_form));
-    });
+    server.on("/", HTTP_GET, sendControlForm);
+    server.on("/activateRelay", HTTP_GET, handleRelay);
+    server.on("/cancelRelay", HTTP_GET, handleCancel);
   } else {
     // Wifi not configured by user. Setup handlers for wifi configuration.
     server.on("/", HTTP_GET, []() {
@@ -283,7 +399,6 @@ void loop() {
         lcd.setCursor(0,0);
         lcd.print("To configure me,");
         scrollPortion = ToConfigureMe;
-        digitalWrite(RELAY_OUT, int(!digitalRead(RELAY_OUT)));
       } else if(scrollPortion == ToConfigureMe) {
         // show the second portion
         //    connect to:
@@ -296,7 +411,6 @@ void loop() {
         lcd.print(DEFAULT_SSID);
         lcd.print("\"");
         scrollPortion = ConnectToSsid;
-        digitalWrite(RELAY_OUT, int(!digitalRead(RELAY_OUT)));
       } else if(scrollPortion == ConnectToSsid) {
         // show the third portion
         //    Then browse to:
@@ -307,7 +421,6 @@ void loop() {
         lcd.setCursor(0,1);
         lcd.print(WiFi.softAPIP());
         scrollPortion = ThenGoTo;
-        digitalWrite(RELAY_OUT, int(!digitalRead(RELAY_OUT)));
       }
 
       // reset the timer
@@ -343,6 +456,25 @@ void loop() {
       lcd.print(WiFi.localIP());
 
       pushButtonSemaphore = 0;
+    }
+
+    if (relayOn) {
+      if (relayTimeoutCounter == 0) {
+        // User requested relay on, but we haven't turned it on yet. So turn it on.
+        out("Relay ON\n");
+        relayTimeoutCounter = millis();
+        digitalWrite(RELAY_OUT, HIGH);
+      } else if (millis() - relayTimeoutCounter > relayTimeout) {
+        // Relay time has elapsed. Turn it off.
+        digitalWrite(RELAY_OUT, LOW);
+        relayOn = false;
+        relayTimeoutCounter = 0;
+        out("Relay OFF\n");
+      } else {
+        // This simply means that the relay is currently ON, and the time for
+        // it to stay on has not elapsed yet.
+        // Nothing to do.
+      }
     }
 
   }

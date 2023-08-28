@@ -42,9 +42,16 @@ unsigned long lcdTimeoutCounter = 0;
 bool relayOn = false;
 unsigned long relayTimeoutCounter = 0;
 unsigned long relayTimeout = 0;
-bool errorInControlForm = false;
 bool ignoreRelayRequest = true;
 String duration = "1";
+
+typedef enum {
+  HeaderMessage_None,
+  HeaderMessage_BadInput,
+  HeaderMessage_CurrentlyRunning
+} HeaderMessage;
+
+HeaderMessage controlFormHdrMessage = HeaderMessage_None;
 
 typedef enum {
   ToConfigureMe,
@@ -134,8 +141,20 @@ void handleSetup() {
 
 void sendControlForm() {
   // Build the html form to send
-  String output_html = errorInControlForm ? control_with_errors_form_hdr : control_form_hdr;
-  errorInControlForm = false;
+  String output_html = "";
+  switch (controlFormHdrMessage) {
+    case HeaderMessage_None:
+      output_html = control_form_hdr;
+      break;
+    case HeaderMessage_BadInput:
+      output_html = control_with_errors_form_hdr;
+      break;
+    case HeaderMessage_CurrentlyRunning:
+      output_html = control_currently_running_form_hdr;
+      break;
+  }
+
+  controlFormHdrMessage = HeaderMessage_None;
   char  action_html[256] = {0};  // todo: lose this magic number!
   char  ip_address[16] = {0};
   char  duration_str[DURATION_MAX_LENGTH + 1] = {0};
@@ -167,6 +186,12 @@ void handleRelay() {
     server.send(200, "text/html", redirect_html);
     return;
   }
+  if (relayOn) {
+    // Relay is currently on. Wait til it's done
+    controlFormHdrMessage = HeaderMessage_CurrentlyRunning;
+    server.send(200, "text/html", redirect_html);
+    return;
+  }
 
   // Do not accept any more requests until the user reloads the control form.
   // This is to prevent an unintentional refresh of http://<ipaddr>/activateRelay from firing the relay.
@@ -181,7 +206,7 @@ void handleRelay() {
 
     if (duration.length() > DURATION_MAX_LENGTH || relayTimeout == 0) {
       // No bueno. Signal bad input error and redirect to control form
-      errorInControlForm = true;
+      controlFormHdrMessage = HeaderMessage_BadInput;
       duration = "1";
       server.send(200, "text/html", redirect_html);
       return;

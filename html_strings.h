@@ -7,6 +7,10 @@ char* control_with_errors_form_hdr =
 "<div><span style=\"color:Red;font-size:30px\">---Bad Input: Digits only, and no more than 4 digits (meaning maximun duration is 9999 seconds)---</span></div>"
 "<div><span style=\"font-size:30px\">Activate Feeder</span></div>";
 
+char* control_currently_running_form_hdr = 
+"<div><span style=\"color:Red;font-size:30px\">---Feeder is currently running. Wait til it's done---</span></div>"
+"<div><span style=\"font-size:30px\">Activate Feeder</span></div>";
+
 char* confirmed_html =
 "<div>Thanks.</div>"
 "<div>Rebooting with the wifi settings you specified.</div>"

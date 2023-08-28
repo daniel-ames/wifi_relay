@@ -41,6 +41,7 @@ unsigned long scrollTime = 0;
 unsigned long lcdTimeoutCounter = 0;
 bool errorInControlForm = false;
 bool ignoreRelayRequest = true;
+String duration = "1";
 
 typedef enum {
   ToConfigureMe,
@@ -132,20 +133,19 @@ void sendControlForm() {
   // Build the html form to send
   String output_html = errorInControlForm ? control_with_errors_form_hdr : control_form_hdr;
   errorInControlForm = false;
-  char *action_html = (char*)malloc(66);  // todo: lose this magic number!
+  char  action_html[256] = {0};  // todo: lose this magic number!
   char  ip_address[16] = {0};
+  char  duration_str[DURATION_MAX_LENGTH + 1] = {0};
   WiFi.localIP().toString().toCharArray(ip_address, 16);
+  duration.toCharArray(duration_str, DURATION_MAX_LENGTH);
 
-  sprintf(action_html, "<form action=\"http://%s/activateRelay\" method=\"GET\">", ip_address);
+  sprintf(action_html, "<form action=\"http://%s/activateRelay\" method=\"GET\"><div><label for=\"duration\">How Long (seconds):</label><input name=\"duration\" id=\"duration\" value=\"%s\"/></div><div><button>GO</button></div></form>", ip_address, duration_str);
   output_html += action_html;
-  output_html += control_form;
 
   server.send(200, "text/html", output_html);
   
   // Allow handleRelay to accept relay activation requests
   ignoreRelayRequest = false;
-
-  free(action_html);
 }
 
 void handleRelay() {
@@ -172,8 +172,6 @@ void handleRelay() {
   // We need to be careful to ONLY activate the relay when the user clicks the form button.
   ignoreRelayRequest = true;
 
-  String duration = "";
-
   char durationBuf[DURATION_MAX_LENGTH + 1] = {0};
 
   if (server.args() == 1) {
@@ -182,6 +180,7 @@ void handleRelay() {
     if (duration.length() > DURATION_MAX_LENGTH) {
       // No bueno. Signal bad input error and redirect to control form
       errorInControlForm = true;
+      duration = "1";
       server.send(200, "text/html", redirect_html);
       return;
     }

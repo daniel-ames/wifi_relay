@@ -7,16 +7,6 @@ char* control_with_errors_form_hdr =
 "<div><span style=\"color:Red;font-size:30px\">---ERROR: no more than 4 digits (meaning maximun duration is 9999 seconds)---</span></div>"
 "<div><span style=\"font-size:30px\">Activate Feeder</span></div>";
 
-char* control_form =
-"  <div>"
-"    <label for=\"duration\">How Long (seconds):</label>"
-"    <input name=\"duration\" id=\"duration\" value=\"1\"/>"
-"  </div>"
-"  <div>"
-"    <button>GO</button>"
-"  </div>"
-"</form>";
-
 char* confirmed_html =
 "<div>Thanks.</div>"
 "<div>Rebooting with the wifi settings you specified.</div>"

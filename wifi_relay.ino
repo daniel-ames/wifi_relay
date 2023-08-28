@@ -177,8 +177,9 @@ void handleRelay() {
 
   if (server.args() == 1) {
     duration = server.arg(0);
+    relayTimeout = (unsigned long)duration.toInt() * 1000;
 
-    if (duration.length() > DURATION_MAX_LENGTH) {
+    if (duration.length() > DURATION_MAX_LENGTH || relayTimeout == 0) {
       // No bueno. Signal bad input error and redirect to control form
       errorInControlForm = true;
       duration = "1";
@@ -188,7 +189,6 @@ void handleRelay() {
 
     // Signal to turn on the relay. The main loop() will do this.
     relayOn = true;
-    relayTimeout = (unsigned long)duration.toInt() * 1000;
 
     out("Relay activation request for %d seconds\n", relayTimeout / 1000);
   } else {

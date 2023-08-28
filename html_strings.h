@@ -8,7 +8,7 @@ char* control_with_errors_form_hdr =
 "<div><span style=\"font-size:30px\">Activate Feeder</span></div>";
 
 char* control_currently_running_form_hdr = 
-"<div><span style=\"color:Red;font-size:30px\">---Feeder is currently running. Wait til it's done---</span></div>"
+"<div><span style=\"color:Red;font-size:30px\">---Feeder is currently running. Wait til it's done (or click stop)---</span></div>"
 "<div><span style=\"font-size:30px\">Activate Feeder</span></div>";
 
 char* confirmed_html =

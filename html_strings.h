@@ -4,7 +4,7 @@ char* control_form_hdr =
 "<div><span style=\"font-size:30px\">Activate Feeder</span></div>";
 
 char* control_with_errors_form_hdr = 
-"<div><span style=\"color:Red;font-size:30px\">---ERROR: no more than 4 digits (meaning maximun duration is 9999 seconds)---</span></div>"
+"<div><span style=\"color:Red;font-size:30px\">---Bad Input: Digits only, and no more than 4 digits (meaning maximun duration is 9999 seconds)---</span></div>"
 "<div><span style=\"font-size:30px\">Activate Feeder</span></div>";
 
 char* confirmed_html =

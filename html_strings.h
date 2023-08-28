@@ -11,6 +11,10 @@ char* control_currently_running_form_hdr =
 "<div><span style=\"color:Red;font-size:60px\">---Feeder is currently running. Wait til it's done (or click stop)---</span></div>"
 "<div><span style=\"font-size:72px\">Activate Feeder</span></div>";
 
+char* control_stopped_form_hdr = 
+"<div><span style=\"color:Green;font-size:60px\">---Feeder stopped---</span></div>"
+"<div><span style=\"font-size:72px\">Activate Feeder</span></div>";
+
 char* rebooting_html =
 "<span style=\"font-size:60px\"><div>Thanks.</div>"
 "<div>Rebooting with the wifi settings you specified.</div>"

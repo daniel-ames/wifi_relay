@@ -49,7 +49,8 @@ String duration = "1";
 typedef enum {
   HeaderMessage_None,
   HeaderMessage_BadInput,
-  HeaderMessage_CurrentlyRunning
+  HeaderMessage_CurrentlyRunning,
+  HeaderMessage_Stopped
 } HeaderMessage;
 
 HeaderMessage controlFormHdrMessage = HeaderMessage_None;
@@ -162,6 +163,9 @@ void sendControlForm() {
     case HeaderMessage_CurrentlyRunning:
       output_html = control_currently_running_form_hdr;
       break;
+    case HeaderMessage_Stopped:
+      output_html = control_stopped_form_hdr;
+      break;
   }
 
   controlFormHdrMessage = HeaderMessage_None;
@@ -234,6 +238,7 @@ void handleCancel() {
   out("Received relay cancel request\n");
   if (relayOn) {
     relayTimeout = 0;
+    controlFormHdrMessage = HeaderMessage_Stopped;
   }
   server.send(200, "text/html", getRedirectHtml());
 }

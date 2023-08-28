@@ -171,7 +171,7 @@ void sendControlForm() {
   WiFi.localIP().toString().toCharArray(ip_address, 16);
   duration.toCharArray(duration_str, DURATION_MAX_LENGTH + 1);
 
-  sprintf(action_html, "<form action=\"http://%s/activateRelay\" method=\"GET\"><div><label for=\"duration\">How Long (seconds):</label><input name=\"duration\" id=\"duration\" value=\"%s\"/></div><div><button>GO</button></div></form><form action=\"http://%s/cancelRelay\" method=\"GET\"><button>STOP</button></form>", ip_address, duration_str, ip_address);
+  sprintf(action_html, "<form action=\"http://%s/activateRelay\" method=\"GET\"><div><label for=\"duration\">How Long (seconds):</label><input name=\"duration\" id=\"duration\" value=\"%s\"/><button>GO</button></div></form><form action=\"http://%s/cancelRelay\" method=\"GET\"><button>STOP</button></form>", ip_address, duration_str, ip_address);
   output_html += action_html;
 
   server.send(200, "text/html", output_html);

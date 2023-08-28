@@ -45,6 +45,7 @@ unsigned long relayTimeout = 0;
 bool ignoreRelayRequest = true;
 String duration = "1";
 
+
 typedef enum {
   HeaderMessage_None,
   HeaderMessage_BadInput,
@@ -91,6 +92,15 @@ bool write_eeprom_buffer(int offset, int length, char *buf) {
     EEPROM.write(i, buf[buf_offset++]);
   }
   return EEPROM.commit();
+}
+
+String getRedirectHtml() {
+  char  redirect_html[128] = {0}; //todo: lose the magic numbers
+  char  ip_address[16] = {0};
+  WiFi.localIP().toString().toCharArray(ip_address, 16);
+  sprintf(redirect_html, "<!DOCTYPE html><html><head><meta http-equiv=\"refresh\" content=\"0; url='http://%s'\" /></head><body></body></html>", ip_address);
+  String str = redirect_html;
+  return str;
 }
 
 void handleSetup() {
@@ -155,13 +165,13 @@ void sendControlForm() {
   }
 
   controlFormHdrMessage = HeaderMessage_None;
-  char  action_html[256] = {0};  // todo: lose this magic number!
+  char  action_html[512] = {0};  // todo: lose this magic number!
   char  ip_address[16] = {0};
   char  duration_str[DURATION_MAX_LENGTH + 1] = {0};
   WiFi.localIP().toString().toCharArray(ip_address, 16);
   duration.toCharArray(duration_str, DURATION_MAX_LENGTH);
 
-  sprintf(action_html, "<form action=\"http://%s/activateRelay\" method=\"GET\"><div><label for=\"duration\">How Long (seconds):</label><input name=\"duration\" id=\"duration\" value=\"%s\"/></div><div><button>GO</button></div></form>", ip_address, duration_str);
+  sprintf(action_html, "<form action=\"http://%s/activateRelay\" method=\"GET\"><div><label for=\"duration\">How Long (seconds):</label><input name=\"duration\" id=\"duration\" value=\"%s\"/></div><div><button>GO</button></div></form><form action=\"http://%s/cancelRelay\" method=\"GET\"><button>STOP</button></form>", ip_address, duration_str, ip_address);
   output_html += action_html;
 
   server.send(200, "text/html", output_html);
@@ -172,24 +182,17 @@ void sendControlForm() {
 
 void handleRelay() {
   out("Received relay activation request\n");
-  
-  // <!DOCTYPE html><html><head><meta http-equiv="refresh" content="7; url='https://999.999.999.999'" /></head><body></body></html>
-  char  redirect_html[128] = {0}; //todo: lose the magic number
-  char  ip_address[16] = {0};
-  WiFi.localIP().toString().toCharArray(ip_address, 16);
-
-  sprintf(redirect_html, "<!DOCTYPE html><html><head><meta http-equiv=\"refresh\" content=\"0; url='http://%s'\" /></head><body></body></html>", ip_address);
 
   if (ignoreRelayRequest) {
     out("...rejected until control form get's loaded again.\n");
     // Redirect to control form
-    server.send(200, "text/html", redirect_html);
+    server.send(200, "text/html", getRedirectHtml());
     return;
   }
   if (relayOn) {
     // Relay is currently on. Wait til it's done
     controlFormHdrMessage = HeaderMessage_CurrentlyRunning;
-    server.send(200, "text/html", redirect_html);
+    server.send(200, "text/html", getRedirectHtml());
     return;
   }
 
@@ -208,7 +211,7 @@ void handleRelay() {
       // No bueno. Signal bad input error and redirect to control form
       controlFormHdrMessage = HeaderMessage_BadInput;
       duration = "1";
-      server.send(200, "text/html", redirect_html);
+      server.send(200, "text/html", getRedirectHtml());
       return;
     }
 
@@ -222,10 +225,18 @@ void handleRelay() {
   }
 
   // Don't leave the user at this page
-  server.send(200, "text/html", redirect_html);
+  server.send(200, "text/html", getRedirectHtml());
 
 }
 
+
+void handleCancel() {
+  out("Received relay cancel request\n");
+  if (relayOn) {
+    relayTimeout = 0;
+  }
+  server.send(200, "text/html", getRedirectHtml());
+}
 
 
 bool WifiConfigured() {
@@ -356,6 +367,7 @@ void setup() {
     // Setup handlers for prescribed device use.
     server.on("/", HTTP_GET, sendControlForm);
     server.on("/activateRelay", HTTP_GET, handleRelay);
+    server.on("/cancelRelay", HTTP_GET, handleCancel);
   } else {
     // Wifi not configured by user. Setup handlers for wifi configuration.
     server.on("/", HTTP_GET, []() {

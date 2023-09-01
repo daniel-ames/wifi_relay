@@ -68,7 +68,9 @@ bool timeInitialized = false;
 const char* ntpServer = "pool.ntp.org";
 const long  gmtOffset_sec = -21600;
 const int   daylightOffset_sec = 3600;
-struct tm timeinfo_boot;
+struct tm   timeinfo_boot;
+char        last_relay_activation_time[41];
+unsigned long last_relay_duration = 0;
 
 // Returns a timestamp string in the format:
 // hh:mm:ss AM|PM, mm/dd/yyyy
@@ -192,19 +194,14 @@ void sendControlForm() {
   char  action_html[512] = {0};  // todo: lose this magic number!
   char  activity_html[512] = {0};  // todo: lose this magic number!
   char  ip_address[16] = {0};
-  char  date_time_str[41];
   char  duration_str[DURATION_MAX_LENGTH + 1] = {0};
-  struct tm date_time;
   WiFi.localIP().toString().toCharArray(ip_address, 16);
   duration.toCharArray(duration_str, DURATION_MAX_LENGTH + 1);
 
   sprintf(action_html, "<form action=\"http://%s/activateRelay\" method=\"GET\"><span style=\"font-size:60px\"><div><label for=\"duration\">How Long (seconds):</label><input style=\"font-size:60px\" name=\"duration\" id=\"duration\" value=\"%s\"/><button style=\"font-size:60px\">GO</button></div></span></form><form action=\"http://%s/cancelRelay\" method=\"GET\"><button style=\"font-size:60px\">STOP</button></form>", ip_address, duration_str, ip_address);
   output_html += action_html;
 
-  memset(date_time_str, 0, 41);
-  getLocalTime(&date_time);
-  getDateTimeMyWay(&date_time, date_time_str, 24);
-  sprintf(activity_html, "<p><div>%s</div></p>", date_time_str);
+  sprintf(activity_html, "<p><div style=\"font-size:40px\">Relay last activated: %s  for %d %s</div></p>", last_relay_activation_time, last_relay_duration, last_relay_duration == 1 ? "second" : "seconds");
   output_html += activity_html;
 
   server.send(200, "text/html", output_html);
@@ -251,11 +248,21 @@ void handleRelay() {
     // Signal to turn on the relay. The main loop() will do this.
     relayOn = true;
 
+    // Mark the time
+    struct tm date_time;
+    memset(last_relay_activation_time, 0, 41);
+    if (getLocalTime(&date_time))
+      getDateTimeMyWay(&date_time, last_relay_activation_time, 24);
+    else
+      memcpy(last_relay_activation_time, "unknown time\0", 13);
+    
+    last_relay_duration = relayTimeout / 1000;
+
     out("Relay activation request for %d seconds\n", relayTimeout / 1000);
-  } else {
-    out("Bad data!!\n");
-    server.send(401);
-  }
+    } else {
+      out("Bad data!!\n");
+      server.send(401);
+    }
 
   // Don't leave the user at this page
   server.send(200, "text/html", getRedirectHtml());

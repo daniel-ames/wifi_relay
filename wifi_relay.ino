@@ -64,6 +64,26 @@ typedef enum {
 ScrollPortion scrollPortion = ThenGoTo;
 
 
+bool timeInitialized = false;
+const char* ntpServer = "pool.ntp.org";
+const long  gmtOffset_sec = -21600;
+const int   daylightOffset_sec = 3600;
+struct tm timeinfo_boot;
+
+// Returns a timestamp string in the format:
+// hh:mm:ss AM|PM, mm/dd/yyyy
+void getDateTimeMyWay(tm* time, char* ptr, int length) {
+  memset(ptr, 0, length);
+  snprintf(ptr, length, "%d:%02d:%02d %s, %d/%d/%d",
+  time->tm_hour > 12 ? time->tm_hour - 12 : time->tm_hour,
+  time->tm_min,
+  time->tm_sec,
+  time->tm_hour > 11 ? "PM" : "AM",
+  time->tm_mon+1,
+  time->tm_mday,
+  time->tm_year+1900);
+}
+
 short pushButtonSemaphore = 0;
 unsigned long lastInterruptTime = 0;
 unsigned long interruptTime;
@@ -170,13 +190,22 @@ void sendControlForm() {
 
   controlFormHdrMessage = HeaderMessage_None;
   char  action_html[512] = {0};  // todo: lose this magic number!
+  char  activity_html[512] = {0};  // todo: lose this magic number!
   char  ip_address[16] = {0};
+  char  date_time_str[41];
   char  duration_str[DURATION_MAX_LENGTH + 1] = {0};
+  struct tm date_time;
   WiFi.localIP().toString().toCharArray(ip_address, 16);
   duration.toCharArray(duration_str, DURATION_MAX_LENGTH + 1);
 
   sprintf(action_html, "<form action=\"http://%s/activateRelay\" method=\"GET\"><span style=\"font-size:60px\"><div><label for=\"duration\">How Long (seconds):</label><input style=\"font-size:60px\" name=\"duration\" id=\"duration\" value=\"%s\"/><button style=\"font-size:60px\">GO</button></div></span></form><form action=\"http://%s/cancelRelay\" method=\"GET\"><button style=\"font-size:60px\">STOP</button></form>", ip_address, duration_str, ip_address);
   output_html += action_html;
+
+  memset(date_time_str, 0, 41);
+  getLocalTime(&date_time);
+  getDateTimeMyWay(&date_time, date_time_str, 24);
+  sprintf(activity_html, "<p><div>%s</div></p>", date_time_str);
+  output_html += activity_html;
 
   server.send(200, "text/html", output_html);
   
@@ -333,6 +362,16 @@ void connectToWifi()
     lcd.print(WiFi.localIP());
     out("connected at ");
     Serial.println(WiFi.localIP());
+
+    if (!timeInitialized) {
+      out("Initializing local time\n");
+      // Looks like this is our first time successfully connecting.
+      // Setup the time stuff
+      configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+      getLocalTime(&timeinfo_boot);
+      timeInitialized = true;
+     }
+
 
   } else {
     out("\nNo ssid configured\n");
